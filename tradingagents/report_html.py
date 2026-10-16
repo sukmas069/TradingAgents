@@ -13,7 +13,7 @@ from importlib.resources import files
 from markdown_it import MarkdownIt
 
 from tradingagents.agents.rating import run_rating
-from tradingagents.reporting import analyst_names
+from tradingagents.reporting import analyst_names, vendors_used
 
 # Ratings by direction, so the page can show which way the call leans.
 _TONE = {"Buy": "up", "Overweight": "up", "Hold": "level", "Underweight": "down", "Sell": "down"}
@@ -221,7 +221,7 @@ def _group(name: str, values_html: str) -> str:
     return f'<span class="group"><span class="name">{escape(name)}</span>{values_html}</span>'
 
 
-def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, str]]:
+def _run_details(ticker: str, final_state: dict, settings: dict | None) -> list[tuple[str, str]]:
     """The run details as (label, value HTML); every value from the run is escaped."""
     details = [("Generated", escape(datetime.now().strftime("%Y-%m-%d %H:%M")))]
     if settings:
@@ -234,7 +234,7 @@ def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, st
             _group("research", _fields([s("max_debate_rounds", "?")])),
             _group("risk", _fields([s("max_risk_discuss_rounds", "?")])),
         ))))
-        vendors = {**(s("data_vendors") or {}), **(s("tool_vendors") or {})}
+        vendors = vendors_used(settings, ticker)
         if vendors:
             details.append(("Data vendors", " ".join(
                 _group(_CATEGORY.get(k, k), _chain(v)) for k, v in vendors.items()
@@ -258,7 +258,7 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
     details = "".join(
         f'<div class="{"note" if label == "Memory log" else "detail"}">'
         f"<dt>{escape(label)}</dt><dd>{value}</dd></div>"
-        for label, value in _run_details(final_state, settings)
+        for label, value in _run_details(ticker, final_state, settings)
     )
 
     contents, body = [], []

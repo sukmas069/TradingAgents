@@ -144,6 +144,32 @@ def normalize_symbol(raw: str) -> str:
     return canonical
 
 
+# Mainland China A-share listings: a 6-digit code plus the exchange suffix.
+# Shanghai is spelled ``.SS`` by Yahoo and ``.SH`` by most Chinese brokers;
+# Beijing Stock Exchange listings use ``.BJ``.
+_A_SHARE = re.compile(r"^(\d{6})\.(SS|SH|SZ|BJ)$")
+
+
+def a_share_parts(raw: str) -> tuple[str, str] | None:
+    """``(code, exchange)`` for a China A-share ticker, else None.
+
+    ``exchange`` is ``SH``, ``SZ`` or ``BJ`` (``.SS`` reads as ``SH``). Purely
+    syntactic, so it is safe to call on every request.
+    """
+    if not isinstance(raw, str):
+        return None
+    match = _A_SHARE.match(raw.strip().upper())
+    if match is None:
+        return None
+    code, exchange = match.groups()
+    return code, "SH" if exchange == "SS" else exchange
+
+
+def is_china_a_share(raw: str) -> bool:
+    """Whether ``raw`` is a China A-share ticker (``600519.SS``, ``300010.SZ``, ...)."""
+    return a_share_parts(raw) is not None
+
+
 # Tickers can contain letters, digits, dot, dash, underscore, caret
 # (index symbols like ^GSPC), equals (futures like GC=F), and plus
 # (forex/CFD symbols like XAUUSD+). None of these enable directory

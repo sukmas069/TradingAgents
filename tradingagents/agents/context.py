@@ -101,7 +101,42 @@ def _identity(ticker: str) -> dict:
         value = _clean_identity_value(info.get(source_key))
         if value:
             identity[target_key] = value
+    identity.update(_china_identity(ticker))
     return identity
+
+
+def _china_identity(ticker: str) -> dict[str, str]:
+    """An A-share's Chinese short name and risk-warning status, from East Money.
+
+    The short name carries the ST / *ST prefix, which Yahoo's English name does
+    not, and a risk warning changes how every agent should read the stock.
+    Best-effort: an unreachable East Money leaves the Yahoo identity alone.
+    """
+    from tradingagents.dataflows.router import china_auto_enabled
+    from tradingagents.dataflows.symbols import is_china_a_share
+    from tradingagents.dataflows.vendors.china.fundamentals import (
+        get_profile_cn,
+        risk_warning_status,
+    )
+
+    if not (china_auto_enabled() and is_china_a_share(ticker)):
+        return {}
+    try:
+        profile = get_profile_cn(ticker)
+    except Exception as exc:  # noqa: BLE001 — identity is best-effort
+        logger.debug("No East Money profile for %s: %s", ticker, exc)
+        return {}
+    out: dict[str, str] = {}
+    short_name = _clean_identity_value(str(profile.get("股票简称") or ""))
+    if short_name:
+        out["local_name"] = short_name
+        status = risk_warning_status(short_name)
+        if status:
+            out["risk_warning"] = status
+    industry = _clean_identity_value(str(profile.get("行业") or ""))
+    if industry:
+        out["local_industry"] = industry
+    return out
 
 
 def build_instrument_context(
@@ -153,6 +188,16 @@ def build_instrument_context(
             details.append(f"Industry: {industry}")
         if identity.get("exchange"):
             details.append(f"Exchange: {identity['exchange']}")
+        if identity.get("local_name"):
+            local = f"Chinese short name: {identity['local_name']}"
+            if identity.get("local_industry"):
+                local += f" (industry 行业: {identity['local_industry']})"
+            details.append(local)
+        if identity.get("risk_warning"):
+            details.append(
+                f"Risk warning: {identity['risk_warning']}; the exchange has flagged this stock, "
+                "so weigh delisting and disclosure risk in every recommendation"
+            )
 
     if details:
         context += (
@@ -167,6 +212,44 @@ def build_instrument_context(
             "assume company fundamentals are available."
         )
     return context
+
+
+_CHINA_A_SHARE_NOTES = {
+    "market": (
+        " This is a China A-share: prices are forward-adjusted (前复权) CNY daily bars from East Money."
+        " The get_stock_data header gives the board's daily price limit; a close at the limit"
+        " (涨停/跌停) is a forced stop, not a settled price, and distorts momentum readings."
+        " Turnover % (换手率) is a key measure of A-share trading activity, and trading settles T+1."
+    ),
+    "news": (
+        " This is a China A-share. get_news returns East Money company news and the company's"
+        " CNINFO exchange announcements: treat the announcements (results, risk warnings,"
+        " regulatory letters, major contracts, shareholding changes) as primary disclosures."
+        " get_global_news returns China's domestic headlines (CCTV evening news, Cailian Press)"
+        " followed by international headlines. For macro, use the China series first:"
+        " get_macro_indicators with 'cn_cpi', 'cn_ppi', 'cn_pmi', 'cn_m2', 'cn_lpr', 'cn_gdp',"
+        " 'cn_shibor'; US series still matter for global risk appetite."
+    ),
+    "fundamentals": (
+        " This is a China A-share. Statements come from East Money as announced. Income and"
+        " cash-flow figures are YEAR-TO-DATE (Q3 report = nine months): derive a single quarter"
+        " by subtracting the previous report of the same year before comparing quarters."
+        " get_fundamentals gives the daily valuation, the risk-warning (ST/*ST) status and the"
+        " past year's risk-related announcements; state what they imply (delisting risk,"
+        " regulatory investigation, audit opinion, results warnings). get_insider_transactions"
+        " lists shareholding-change announcements (增持/减持/回购/解禁)."
+    ),
+}
+
+
+def china_a_share_note(ticker: str, role: str) -> str:
+    """Prompt guidance for an analyst when the instrument is a China A-share, else ''."""
+    from tradingagents.dataflows.router import china_auto_enabled
+    from tradingagents.dataflows.symbols import is_china_a_share
+
+    if not (china_auto_enabled() and is_china_a_share(ticker)):
+        return ""
+    return _CHINA_A_SHARE_NOTES.get(role, "")
 
 
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:

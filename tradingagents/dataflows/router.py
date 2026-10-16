@@ -3,9 +3,11 @@ import logging
 from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
+    VendorError,
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
+from tradingagents.dataflows.symbols import is_china_a_share
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -16,6 +18,23 @@ from tradingagents.dataflows.vendors.alpha_vantage import (
     get_insider_transactions as get_alpha_vantage_insider_transactions,
     get_news as get_alpha_vantage_news,
     get_stock as get_alpha_vantage_stock,
+)
+from tradingagents.dataflows.vendors.china.fundamentals import (
+    get_balance_sheet_cn,
+    get_cashflow_cn,
+    get_fundamentals_cn,
+    get_income_statement_cn,
+)
+from tradingagents.dataflows.vendors.china.macro import get_macro_data_cn, is_china_macro_alias
+from tradingagents.dataflows.vendors.china.market import (
+    get_indicators_cn,
+    get_stock_data_cn,
+    load_ohlcv_cn,
+)
+from tradingagents.dataflows.vendors.china.news import (
+    get_global_news_cn,
+    get_insider_transactions_cn,
+    get_news_cn,
 )
 from tradingagents.dataflows.vendors.fred import get_macro_data as get_fred_macro_data
 from tradingagents.dataflows.vendors.polymarket import (
@@ -38,6 +57,7 @@ from tradingagents.dataflows.vendors.yahoo.market import (
     get_YFin_data_online,
 )
 from tradingagents.dataflows.vendors.yahoo.news import get_global_news_yfinance, get_news_yfinance
+from tradingagents.dataflows.vendors.yahoo.snapshot import build_verified_market_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -99,54 +119,92 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "china": get_stock_data_cn,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "china": get_indicators_cn,
     },
     # fundamental_data
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
+        "china": get_fundamentals_cn,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "sec_edgar": get_sec_edgar_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
+        "china": get_balance_sheet_cn,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "sec_edgar": get_sec_edgar_cashflow,
         "yfinance": get_yfinance_cashflow,
+        "china": get_cashflow_cn,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
+        "china": get_income_statement_cn,
     },
     # news_data
     "get_news": {
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
+        "china": get_news_cn,
     },
     "get_global_news": {
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
+        "china": get_global_news_cn,
     },
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
+        "china": get_insider_transactions_cn,
     },
     # macro_data
     "get_macro_indicators": {
         "fred": get_fred_macro_data,
+        "china": get_macro_data_cn,
     },
     # prediction_markets
     "get_prediction_markets": {
         "polymarket": get_polymarket_prediction_markets,
     },
 }
+
+
+# Methods whose first argument is the instrument's ticker, so the router can
+# tell an A-share call from the arguments alone.
+_SYMBOL_METHODS = {
+    "get_stock_data", "get_indicators", "get_fundamentals", "get_balance_sheet",
+    "get_cashflow", "get_income_statement", "get_news", "get_insider_transactions",
+}
+
+
+def china_auto_enabled() -> bool:
+    """Whether A-share calls go to the China vendor first (``china_auto_vendor``)."""
+    return bool(get_config().get("china_auto_vendor", True))
+
+
+def _routes_to_china(method: str, args: tuple, route_symbol: str | None) -> bool:
+    """Whether this call is about an A-share (or a China macro series) and so goes to the China vendor first.
+
+    Yahoo serves A-share prices but no filing dates, announcements, Chinese news
+    or forum posts, so an A-share call prefers the China vendor whatever the
+    configured chain, and keeps that chain as its fallback.
+    """
+    if not china_auto_enabled() or "china" not in VENDOR_METHODS.get(method, {}):
+        return False
+    if method == "get_macro_indicators":
+        return bool(args) and is_china_macro_alias(args[0])
+    symbol = route_symbol or (args[0] if method in _SYMBOL_METHODS and args else None)
+    return is_china_a_share(symbol)
 
 
 def get_category_for_method(method: str) -> str:
@@ -197,8 +255,12 @@ def no_data_available(error: NoMarketDataError) -> str:
     )
 
 
-def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+def route_to_vendor(method: str, *args, route_symbol: str | None = None, **kwargs):
+    """Route method calls to appropriate vendor implementation with fallback support.
+
+    ``route_symbol`` names the instrument for a method whose arguments do not
+    (``get_global_news``), so an A-share run can still be routed to the China vendor.
+    """
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
@@ -222,7 +284,12 @@ def route_to_vendor(method: str, *args, **kwargs):
                 f"Available: {all_available_vendors}."
             )
     else:
-        vendor_chain = all_available_vendors
+        # "china" serves only A-shares and China macro series, so the default
+        # chain leaves it to the auto-routing below.
+        vendor_chain = [v for v in all_available_vendors if v != "china"]
+
+    if _routes_to_china(method, args, route_symbol):
+        vendor_chain = ["china"] + [v for v in vendor_chain if v != "china"]
 
     last_no_data: NoMarketDataError | None = None
     last_unavailable: VendorUnavailableError | None = None
@@ -295,3 +362,17 @@ def route_to_vendor(method: str, *args, **kwargs):
         raise first_error
 
     raise RuntimeError(f"No available vendor for '{method}'")
+
+
+def market_snapshot(symbol: str, as_of_date: str, look_back_days: int = 30) -> str:
+    """The verified market snapshot, from East Money's bars for an A-share and Yahoo's otherwise.
+
+    An A-share whose China feed fails falls back to Yahoo, the same fallback the
+    routed tools get.
+    """
+    if china_auto_enabled() and is_china_a_share(symbol):
+        try:
+            return build_verified_market_snapshot(symbol, as_of_date, look_back_days, loader=load_ohlcv_cn)
+        except VendorError as exc:
+            logger.warning("China price feed failed for the %s snapshot, using Yahoo: %s", symbol, exc)
+    return build_verified_market_snapshot(symbol, as_of_date, look_back_days)

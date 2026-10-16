@@ -10,11 +10,30 @@ from datetime import datetime
 from pathlib import Path
 
 from tradingagents.agents.rating import run_rating
+from tradingagents.dataflows.symbols import is_china_a_share
+
+# Categories the China vendor serves for an A-share ahead of the configured chain.
+_CHINA_CATEGORIES = ("core_stock_apis", "technical_indicators", "fundamental_data", "news_data", "macro_data")
 
 
 def analyst_names(keys) -> list[str]:
     """The analysts as users select them: the sentiment analyst's key is "social"."""
     return ["sentiment" if key == "social" else key for key in keys or []]
+
+
+def vendors_used(settings: dict, ticker: str) -> dict[str, str]:
+    """The vendor chain each category was served from for ``ticker``, in the order tried.
+
+    The configured chains, with ``china`` first for an A-share when the run had
+    ``china_auto_vendor`` on, since the router sends A-shares there first.
+    """
+    vendors = {**(settings.get("data_vendors") or {}), **(settings.get("tool_vendors") or {})}
+    if not (settings.get("china_auto_vendor") and is_china_a_share(ticker)):
+        return vendors
+    for category in _CHINA_CATEGORIES:
+        chain = [v.strip() for v in str(vendors.get(category, "")).split(",") if v.strip() and v.strip() != "china"]
+        vendors[category] = ",".join(["china", *chain])
+    return vendors
 
 
 def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
@@ -38,7 +57,7 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
         lines.append(f"- Analysts: {', '.join(analyst_names(s('analysts')))}; "
                      f"research debate rounds {s('max_debate_rounds', '?')}, "
                      f"risk debate rounds {s('max_risk_discuss_rounds', '?')}")
-        vendors = {**(s("data_vendors") or {}), **(s("tool_vendors") or {})}
+        vendors = vendors_used(settings, ticker)
         if vendors:
             lines.append("- Data vendors: " + ", ".join(f"{k} {v}" for k, v in vendors.items()))
     if final_state.get("memory_note"):

@@ -1,7 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.turn import take_turn
-from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
+from tradingagents.agents.context import (
+    china_a_share_note,
+    get_instrument_context_from_state,
+    get_language_instruction,
+)
 from tradingagents.agents.tools import get_indicators, get_stock_data, get_verified_market_snapshot
 
 # The tools this analyst is offered; its tool node is built from the same tuple.
@@ -49,6 +53,7 @@ Before writing the final report, call get_verified_market_snapshot for this tick
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + china_a_share_note(state["company_of_interest"], "market")
             + get_language_instruction()
         )
 
