@@ -11,8 +11,14 @@ from langgraph.prebuilt import InjectedState
 
 from tradingagents.dataflows.date_window import as_of, as_of_window
 from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
-from tradingagents.dataflows.router import no_data_available, route_to_vendor, vendor_unavailable
-from tradingagents.dataflows.vendors.yahoo.snapshot import build_verified_market_snapshot
+from tradingagents.dataflows.router import (
+    china_auto_enabled,
+    market_snapshot,
+    no_data_available,
+    route_to_vendor,
+    vendor_unavailable,
+)
+from tradingagents.dataflows.symbols import is_china_a_share
 
 
 @tool
@@ -87,7 +93,7 @@ def get_verified_market_snapshot(
     """
     # An exception out of a tool would end the run.
     try:
-        return build_verified_market_snapshot(symbol, as_of(curr_date, trade_date), look_back_days)
+        return market_snapshot(symbol, as_of(curr_date, trade_date), look_back_days)
     except VendorUnavailableError as exc:
         return vendor_unavailable("get_verified_market_snapshot", exc)
     except NoMarketDataError as exc:
@@ -197,12 +203,15 @@ def get_global_news(
     look_back_days: Annotated[int | None, "Days to look back; omit to use the configured default"] = None,
     limit: Annotated[int | None, "Max articles to return; omit to use the configured default"] = None,
     trade_date: Annotated[str, InjectedState("trade_date")] = "",
+    ticker: Annotated[str, InjectedState("company_of_interest")] = "",
 ) -> str:
     """
     Retrieve global news data.
     Uses the configured news_data vendor. Defaults for look_back_days and
     limit come from DEFAULT_CONFIG (global_news_lookback_days,
     global_news_article_limit); pass explicit values to override.
+    For a China A-share, China's domestic headlines (CCTV evening news,
+    Cailian Press wire) come first, followed by the international headlines.
 
     Args:
         curr_date (str): Current date in yyyy-mm-dd format
@@ -212,7 +221,13 @@ def get_global_news(
     Returns:
         str: A formatted string containing global news data
     """
-    return route_to_vendor("get_global_news", as_of(curr_date, trade_date), look_back_days, limit)
+    curr_date = as_of(curr_date, trade_date)
+    if not (china_auto_enabled() and is_china_a_share(ticker)):
+        return route_to_vendor("get_global_news", curr_date, look_back_days, limit)
+    domestic = route_to_vendor("get_global_news", curr_date, look_back_days, limit, route_symbol=ticker)
+    if not domestic.startswith("## China domestic news"):
+        return domestic  # the China feeds failed and the configured vendor already answered
+    return domestic + "\n\n" + route_to_vendor("get_global_news", curr_date, look_back_days, limit)
 
 
 @tool
@@ -237,7 +252,8 @@ def get_macro_indicators(
         "'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve', "
         "'real_gdp', 'vix', euro-area aliases such as 'ecb_deposit_rate', "
         "'euro_hicp', 'euro_core_hicp', 'euro_real_gdp', 'germany_10y', "
-        "'france_10y', 'eur_usd', or a raw FRED series ID such as 'CPIAUCSL'.",
+        "'france_10y', 'eur_usd', China aliases 'cn_cpi', 'cn_ppi', 'cn_pmi', "
+        "'cn_m2', 'cn_lpr', 'cn_gdp', 'cn_shibor', or a raw FRED series ID such as 'CPIAUCSL'.",
     ],
     curr_date: Annotated[str, "Current date in yyyy-mm-dd format; the end of the window"],
     look_back_days: Annotated[
@@ -248,7 +264,8 @@ def get_macro_indicators(
     """
     Retrieve a macroeconomic indicator time series from FRED (Federal Reserve
     Economic Data): policy rates, Treasury yields, inflation, labor, and growth,
-    for the US and, through FRED's mirrored series, the euro area.
+    for the US and, through FRED's mirrored series, the euro area. The cn_*
+    aliases serve China's CPI, PPI, PMI, money supply, LPR, GDP and SHIBOR.
     Returns the series title, units, frequency, the latest value, the change
     over the window, and a recent observation table. Uses the configured
     macro_data vendor.

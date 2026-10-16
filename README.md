@@ -225,6 +225,24 @@ TradingAgents works with any market Yahoo Finance covers, using the exchange-suf
 - China A-shares: Shanghai `.SS`, Shenzhen `.SZ` (e.g. `600519.SS` for Kweichow Moutai)
 - Crypto: `BTC-USD`, `ETH-USD`
 
+### China A-shares
+
+A-share tickers (`600519.SS` or `600519.SH`, `300010.SZ`, `830799.BJ`) read Chinese sources through [AKShare](https://github.com/akfamily/akshare), with Yahoo kept as the fallback:
+
+| Data | Source | Point in time |
+|---|---|---|
+| Daily prices and indicators | East Money, forward-adjusted | Bars after the analysis date are dropped |
+| Valuation (PE, PB, market cap) | East Money daily history | The analysis date's row |
+| Statements | East Money, with each report's announcement date | Only reports announced by the analysis date; later revisions are flagged |
+| Announcements | CNINFO | Queried by date, so any past window is complete |
+| Company news | East Money | Trimmed to the window; a past window the feed no longer holds is reported unavailable |
+| Domestic headlines | CCTV evening news, Cailian Press wire | By date |
+| Macro (`cn_cpi`, `cn_ppi`, `cn_pmi`, `cn_m2`, `cn_lpr`, `cn_gdp`, `cn_shibor`) | NBS / PBoC via AKShare | Held back by each series' publication lag |
+| Retail chatter | East Money stock forum (股吧) posts and popularity rank | Posts trimmed to the window; rank up to the analysis date |
+| Shareholding changes | CNINFO announcements (增持/减持/回购/解禁) | By announcement date |
+
+Every agent is told the Chinese short name and any risk warning (ST / *ST). The fundamentals analyst is told that A-share income and cash-flow figures are year-to-date. Set `china_auto_vendor` to `False` (or `TRADINGAGENTS_CHINA_AUTO_VENDOR=false`) to send A-shares through the configured vendors like any other ticker.
+
 <p align="center">
   <img src="assets/cli/cli_init.png" width="100%" style="display: inline-block; margin: 0 2%;">
 </p>

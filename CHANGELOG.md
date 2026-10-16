@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Changes that need action when upgrading are listed under "Upgrading from" in their release.
 
+## [Unreleased]
+
+China A-shares read from Chinese sources.
+
+### Added
+
+- **China A-share data.** A-share tickers (`600519.SS` / `600519.SH`, `300010.SZ`, `830799.BJ`) go to a new `china` vendor first, with the configured chain kept as the fallback: East Money daily prices (forward-adjusted) and indicators, East Money statements with each report's announcement date, daily valuation history, CNINFO announcements, East Money company news, CCTV evening news and the Cailian Press wire, China macro series (`cn_cpi`, `cn_ppi`, `cn_pmi`, `cn_m2`, `cn_lpr`, `cn_gdp`, `cn_shibor`), and shareholding-change announcements. Read through AKShare; no key is needed. `china_auto_vendor` (`TRADINGAGENTS_CHINA_AUTO_VENDOR`) turns it off.
+- **A-share sentiment.** For an A-share the Sentiment Analyst reads East Money stock-forum (股吧) posts and the daily popularity rank instead of StockTwits and Reddit.
+- **A-share context for the agents.** Every agent is told the Chinese short name and any risk warning (ST / *ST); the market, news and fundamentals analysts get A-share guidance (price limits and T+1, announcements as primary disclosures, year-to-date income and cash-flow figures).
+- **Vendor chains from the environment.** `TRADINGAGENTS_NEWS_VENDOR`, `TRADINGAGENTS_STOCK_VENDOR`, `TRADINGAGENTS_INDICATOR_VENDOR`, `TRADINGAGENTS_FUNDAMENTALS_VENDOR` and `TRADINGAGENTS_MACRO_VENDOR` set a category's vendor chain, e.g. `alpha_vantage,yfinance` for dated news in a backtest.
+
+### Point in time
+
+- A-share statements are served by announcement date; a report revised after the analysis date is flagged. Prices, valuation and the popularity rank stop at the analysis date; announcements are queried by date; East Money news and forum posts are trimmed to the window and a past window they no longer hold is reported unavailable; China macro observations are held back by a publication lag.
+
+### Fixed
+
+- The report header's "Data vendors" line names the vendor chain an A-share was actually served from, rather than the configured default.
+
+### Upgrading from 0.6.0
+
+- akshare 1.19.1 and tabulate 0.9 or later are installed.
+- A-share runs read Chinese sources by default; set `TRADINGAGENTS_CHINA_AUTO_VENDOR=false` for the previous Yahoo-only behaviour.
+
 ## [0.6.0] — 2026-10-03
 
 HTML reports, a provider per model tier, past decisions settled for every ticker while the analysts work, and company news read while Yahoo's news feed is down.

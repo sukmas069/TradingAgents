@@ -21,6 +21,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_MAX_TOOL_ROUNDS":      "max_tool_rounds",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
+    "TRADINGAGENTS_CHINA_AUTO_VENDOR":    "china_auto_vendor",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
@@ -31,6 +32,17 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+}
+
+
+# Vendor chains per data category, e.g. TRADINGAGENTS_NEWS_VENDOR=alpha_vantage,yfinance
+# to read dated news from Alpha Vantage, which serves past windows, before Yahoo.
+_VENDOR_ENV_OVERRIDES = {
+    "TRADINGAGENTS_STOCK_VENDOR":        "core_stock_apis",
+    "TRADINGAGENTS_INDICATOR_VENDOR":    "technical_indicators",
+    "TRADINGAGENTS_FUNDAMENTALS_VENDOR": "fundamental_data",
+    "TRADINGAGENTS_NEWS_VENDOR":         "news_data",
+    "TRADINGAGENTS_MACRO_VENDOR":        "macro_data",
 }
 
 
@@ -71,6 +83,10 @@ def _apply_env_overrides(config: dict) -> dict:
             config[key] = _coerce(raw, config.get(key))
         except ValueError as exc:
             raise ValueError(f"Invalid value for {env_var}: {exc}") from exc
+    for env_var, category in _VENDOR_ENV_OVERRIDES.items():
+        raw = (os.environ.get(env_var) or "").strip()
+        if raw:
+            config.setdefault("data_vendors", {})[category] = raw
     return config
 
 
@@ -165,6 +181,12 @@ def build_default_config() -> dict:
             "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         },
+        # China A-shares (600519.SS, 300010.SZ, ...) go to the "china" vendor
+        # first: East Money prices and statements (with announcement dates),
+        # CNINFO announcements, Chinese news and the East Money stock forum, via
+        # AKShare. The category chains above remain the fallback. False sends
+        # A-shares through the configured chains like any other ticker.
+        "china_auto_vendor": True,
         # Tool-level configuration (takes precedence over category-level)
         "tool_vendors": {
             # Example: "get_stock_data": "alpha_vantage",  # Override category default

@@ -137,3 +137,12 @@ def test_unknown_env_var_is_ignored(monkeypatch):
         TRADINGAGENTS_NONEXISTENT_KEY="oops",
     )
     assert "nonexistent_key" not in config
+
+
+def test_vendor_chain_overrides(monkeypatch):
+    for key in default_config_module._VENDOR_ENV_OVERRIDES:
+        monkeypatch.delenv(key, raising=False)
+    config = _config_with_env(monkeypatch, TRADINGAGENTS_NEWS_VENDOR="alpha_vantage,yfinance")
+    assert config["data_vendors"]["news_data"] == "alpha_vantage,yfinance"
+    # Categories not overridden keep their defaults.
+    assert config["data_vendors"]["fundamental_data"] == "sec_edgar,yfinance"

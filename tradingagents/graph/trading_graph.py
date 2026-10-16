@@ -272,6 +272,7 @@ class TradingAgentsGraph:
             "output_language": cfg.get("output_language"),
             "data_vendors": dict(cfg.get("data_vendors") or {}),
             "tool_vendors": dict(cfg.get("tool_vendors") or {}),
+            "china_auto_vendor": bool(cfg.get("china_auto_vendor", True)),
         }
 
     def save_reports(self, final_state, ticker, save_path=None, html=True) -> Path:

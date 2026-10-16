@@ -72,7 +72,14 @@ def get_stock_stats_indicators_window(
         str, "The current trading date you are trading on, YYYY-mm-dd"
     ],
     look_back_days: Annotated[int, "how many days to look back"],
+    loader=None,
 ) -> str:
+    """``indicator`` for each day of the window ending ``as_of_date``.
+
+    ``loader(symbol, as_of_date)`` supplies the OHLCV frame (Yahoo's cached
+    download by default), so another price vendor can reuse the indicator set.
+    """
+    loader = loader or load_ohlcv
 
     best_ind_params = {
         # Moving Averages
@@ -158,7 +165,7 @@ def get_stock_stats_indicators_window(
 
     # Optimized: Get stock data once and calculate indicators for all dates
     try:
-        indicator_data = _get_stock_stats_bulk(symbol, indicator, as_of_date)
+        indicator_data = _get_stock_stats_bulk(symbol, indicator, as_of_date, loader)
 
         # Generate the date range we need
         current_dt = as_of_dt
@@ -189,7 +196,7 @@ def get_stock_stats_indicators_window(
         as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         while as_of_dt >= before:
             indicator_value = get_stockstats_indicator(
-                symbol, indicator, as_of_dt.strftime("%Y-%m-%d")
+                symbol, indicator, as_of_dt.strftime("%Y-%m-%d"), loader
             )
             ind_string += f"{as_of_dt.strftime('%Y-%m-%d')}: {indicator_value}\n"
             as_of_dt = as_of_dt - relativedelta(days=1)
@@ -207,7 +214,8 @@ def get_stock_stats_indicators_window(
 def _get_stock_stats_bulk(
     symbol: Annotated[str, "ticker symbol of the company"],
     indicator: Annotated[str, "technical indicator to calculate"],
-    as_of_date: Annotated[str, "current date for reference"]
+    as_of_date: Annotated[str, "current date for reference"],
+    loader=None,
 ) -> dict:
     """
     Optimized bulk calculation of stock stats indicators.
@@ -216,7 +224,7 @@ def _get_stock_stats_bulk(
     """
     from stockstats import wrap
 
-    data = load_ohlcv(symbol, as_of_date)
+    data = (loader or load_ohlcv)(symbol, as_of_date)
     df = wrap(data)
     df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
 
@@ -241,6 +249,7 @@ def get_stockstats_indicator(
     as_of_date: Annotated[
         str, "The current trading date you are trading on, YYYY-mm-dd"
     ],
+    loader=None,
 ) -> str:
 
     as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
@@ -251,6 +260,7 @@ def get_stockstats_indicator(
             symbol,
             indicator,
             as_of_date,
+            loader,
         )
     except VendorError:
         raise  # Unknown/delisted symbol — let the router emit the sentinel
@@ -280,8 +290,9 @@ def get_stock_stats(
     as_of_date: Annotated[
         str, "curr date for retrieving stock price data, YYYY-mm-dd"
     ],
+    loader=None,
 ):
-    data = load_ohlcv(symbol, as_of_date)
+    data = (loader or load_ohlcv)(symbol, as_of_date)
     df = wrap(data)
     df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
     as_of_str = pd.to_datetime(as_of_date).strftime("%Y-%m-%d")
